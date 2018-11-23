@@ -33,7 +33,6 @@ _FICD	(ICS_PGD1 & JTAGEN_OFF);
 
 //Function prototypes
 void InitIO (void);
-void InitTimer (void);					
 void InitUART(void);
 void ADC (void);			
 void ProcessData(void);
@@ -42,7 +41,8 @@ void Shutdown(void);
 
 //Global variables
 unsigned int Photocell = 0;     //Value received from UART1 to control the pulsing rate of an LED connected to RB5 
-unsigned int ONTime = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
+unsigned int PWML = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
+unsigned int PWMR = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
 unsigned int DirectionR = 0;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
 unsigned int DirectionL = 0;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module		
 
@@ -55,12 +55,12 @@ int uartcount = 0;                          //The current array index of the rec
 
 unsigned int CommsLossCount = 0;            //Store the number of times there was a communication loss
 unsigned short Communicating;               //Store the value ReceiveDataArray[20], if 1 then new data received
-int x = 0, xx = 0, xxx = 0, xxxx = 0;
+unsigned char StartAutonomous = 0;
+int x = 0, xx = 0;
 
 int main (void)
 {
 	InitIO();               //Call InitIO which configures the input and output pins
-	InitTimer();            //Call InitTimer which configures Timer1 for controlling LED pulse rate
 	InitUART();             //Call InitUART which configures the UART1 hardware module for communications
                             //with the HC-05 Bluetooth Module
 	
@@ -80,21 +80,29 @@ int main (void)
             LATAbits.LATA4 = 0;     //Turn off Communication loss LED
             //ADC();                  //Call ADC which configures and reads AN0 Don't call ADC Revised By: Daniel Hong October 29
                        
-            ONTime = 0;                // Disable the motors if no button is pressed Revised By: Daniel Hong November 5 2018
+            PWMR = PWML = 0;                // Disable the motors if no button is pressed Revised By: Daniel Hong November 5 2018
             if (PORTBbits.RB10) {           // Set directions based on the left button being pressed
                 DirectionL = 1;             // Revised By: Daniel Hong November 5 2018
                 DirectionR = 1;
             } else if (PORTBbits.RB11) {    // Set directions based on the reverse button being pressed
-                DirectionL = 1;             // Revised By: Daniel Hong November 5 2018
-                DirectionR = 0;
-            } else if (PORTBbits.RB12) {    // Set directions based on the forward button being pressed
                 DirectionL = 0;             // Revised By: Daniel Hong November 5 2018
                 DirectionR = 1;
+            } else if (PORTBbits.RB12) {    // Set directions based on the forward button being pressed
+                DirectionL = 1;             // Revised By: Daniel Hong November 5 2018
+                DirectionR = 0;
             } else if (PORTBbits.RB13) {    // Set directions based on the right button being pressed
                 DirectionL = 0;             // Revised By: Daniel Hong November 5 2018
                 DirectionR = 0;
             } else {
-                ONTime = 65535;
+                PWMR = PWML = 65535;
+            }
+            
+            if (PORTBbits.RB15) {
+//                DirectionL = 0;
+//                DirectionR = 0;
+//                PWMR = 30000;
+//                PWML = 55000;
+                StartAutonomous = 1;
             }
         } 
     }
@@ -104,12 +112,15 @@ void InitIO (void)
 {
 	TRISAbits.TRISA0 = 1;	//Set RA0 (AN0) as input
     
+    AD1PCFGLbits.PCFG9 = 1; //Set RB13 As Digital Instead of Analog
     AD1PCFGLbits.PCFG11 = 1; //Set RB13 As Digital Instead of Analog
     AD1PCFGLbits.PCFG12 = 1; //Set RB12 as Digital Instead of analog
     TRISBbits.TRISB10 = 1;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
     TRISBbits.TRISB11 = 1;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
     TRISBbits.TRISB12 = 1;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
     TRISBbits.TRISB13 = 1;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
+    
+    TRISBbits.TRISB15 = 1;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
     
     TRISAbits.TRISA2 = 1;	//Set RA2 as input for switch Revised By: Daniel Hong Oct 29
     TRISBbits.TRISB6 = 0;	//Set RB6 as output for limit switch from Robot MCU Revised By: Daniel Hong Oct 29
@@ -127,14 +138,6 @@ void InitIO (void)
 	//RP9 TO U1TX           //Set the RP9 pin to UART1 TX pin
 	RPOR4bits.RP9R = 3;     //See TABLE 11-2: OUTPUT SELECTION FOR REMAPPABLE PIN (RPn), Page 137
                             //and REGISTER 11-19: RPOR4: PERIPHERAL PIN SELECT OUTPUT REGISTERS 4, Page 154
-}
-/*****************************************************************************************************************/
-void InitTimer(void)
-// For more information on PIC24H Timers Peripheral Module Library refer to link below:
-// file:///C:/Program%20Files%20(x86)/Microchip/xc16/v1.32/docs/periph_libs/dsPIC30F_dsPIC33F_PIC24H_dsPIC33E_PIC24E_Timers_Help.htm
-{                                                   //Prescaler = 1:8 and Period = 0xFFFF					
-	OpenTimer3 (T3_ON & T3_IDLE_STOP & T3_GATE_OFF & T3_PS_1_8 & T3_SOURCE_INT, 0xFFFF);							
-	ConfigIntTimer3 (T3_INT_PRIOR_1 & T3_INT_ON);   //Set interrupt priority and Turn Timer3's interrupt on
 }
 /*****************************************************************************************************************/
 void InitUART(void)
@@ -176,22 +179,29 @@ void ADC (void)
 	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN1);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-	ONTime = ReadADC1(0);           //ONTime = converted results
+	PWMR = ReadADC1(0);           //ONTime = converted results
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 }
 /*****************************************************************************************************************/
 void ProcessData(void)
 {
-	SendDataArray[1] = (ONTime >> 8);       //Populate the array one byte at a time
-	SendDataArray[2] = ONTime;              // Revised By: Daniel Hong November 5 2018
+	SendDataArray[1] = (PWMR >> 8);       //Populate the array one byte at a time
+	SendDataArray[2] = PWMR;              // Revised By: Daniel Hong November 5 2018
     
-    SendDataArray[3] = DirectionR;       //Set right directions Revised By: Daniel Hong November 5 2018
-    SendDataArray[4] = DirectionL;       //Set left direction Revised By: Daniel Hong November 5 2018
-
-	Photocell = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];   //Build integer from array of bytes
+    SendDataArray[3] = (PWML >> 8);       //Populate the array one byte at a time
+	SendDataArray[4] = PWML;              // Revised By: Daniel Hong November 5 2018
+    
+    SendDataArray[5] = DirectionR;       //Set right directions Revised By: Daniel Hong November 5 2018
+    SendDataArray[6] = DirectionL;       //Set left direction Revised By: Daniel Hong November 5 2018
 
     SendDataArray[20] = 1;                  //Sending a 1 for robot to check for communication (i.e. new data)
     Communicating = ReceiveDataArray[20];   //Checking if the robot sent us a 1, which will indicate communication
+    
+    SendDataArray[7] = StartAutonomous;
+    StartAutonomous = 0;
+    
+    x = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];
+    xx = (ReceiveDataArray[3] << 8) + ReceiveDataArray[4];
     
     if(Communicating){                      //If there is communication, reset the communication loss counter
         CommsLossCount = 0;
@@ -219,15 +229,6 @@ void Shutdown(void){
     //cause problems. Therefore, enter your code to disable/stop anything that could potentially keep running
     
     LATAbits.LATA4 = 1;                 //Turn on communication error LED 
-}
-/*****************************************************************************************************************/
-void __attribute__((interrupt, auto_psv)) _T3Interrupt(void)
-{
-	DisableIntT3;                       //Disable Timer3 Interrupt
-	LATBbits.LATB5 = 1 ^ PORTBbits.RB5; //Toggle LED connected to RB5
-	WriteTimer3(Photocell*16);          //Pulse rate value from photocell on Robot MCU
-	IFS0bits.T3IF = 0;                  //Reset Timer3 interrupt flag
-	EnableIntT3;                        //Enable Timer3 interrupt
 }
 /*****************************************************************************************************************/
 // UART1 Receive Interrupt

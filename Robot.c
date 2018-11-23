@@ -54,6 +54,8 @@ void Shutdown(void);
 void InitPWM(void);		
 void Drive(void);
 void Autonomous(void);
+void AutoDrive(int time);
+void AutoLeft(int time);
 
 
 unsigned int PWMReceivedDC = 0;            //Variable used to store value of ONTime while it is being received and mapped
@@ -71,6 +73,7 @@ unsigned int PWMR = 65535;	//Initialize PWM2, used to store value of PWM Signal 
                             //Note the value of 65535 represents 100% Duty Cycle = motor off 
 unsigned int PhotoLeft = 0;	//Initialize PWM2, used to store value of PWM Signal to motor 2
 unsigned int PhotoRight = 0;	//Initialize PWM2, used to store value of PWM Signal to motor 2
+unsigned int StartAutonomous = 0;
 
 int main (void)
 {
@@ -82,13 +85,10 @@ int main (void)
 	for (i=0; i<BUFF_SIZE; i++) SendDataArray[i] = 0;   //Initialize the array of chars to zero
 	SendDataArray[0] = 's';                             //Set first element as 's' for data synchronization
                                                        //and for framing error checking
-//    Autonomous();
 
 	while (1) {            
         ProcessData();	//Call ProcessData to update variables for UART1 Communications
         SendData(); 	//Call SendData to send data through the UART1 TX pin to HC-05 Bluetooth Module
-        
-        Shutdown();             //You must define code in Shutdown function below
 
         if(CommsLossCount>200){     //If communication loss persists, we assume complete loss of communication
             Shutdown();             //You must define code in Shutdown function below
@@ -96,6 +96,12 @@ int main (void)
         else{                       //If there is communication, then the following code block will be executed
                                     //This is where all your functions should be executed
             LATAbits.LATA4 = 0;     //Turn off Communication loss LED
+            
+            if (StartAutonomous) {
+                StartAutonomous = 0;
+                Autonomous();
+            }
+            
             ADC();
             Drive();
         }            
@@ -105,56 +111,35 @@ int main (void)
 }
 /*****************************************************************************************************************/
 void Autonomous(void) {    
-    ADC();
-    unsigned int threshold = 0;
-    unsigned int endthreshold = 20000;
-    int balance = 0;
-
-    while (1) {
-        
-        ADC();
-        if (PhotoLeft >= threshold && PhotoRight >= threshold) {
-            balance = 0;
-            PWML = PWMR = 20000;
-        } else if (PhotoLeft < threshold && PhotoRight < threshold) {
-            if (balance > 0) {
-                balance = 2;
-                PWML = 20000;
-                PWMR = 65535;
-            } else if (balance < 0) {
-                balance = -2;
-                PWML = 65535;
-                PWMR = 20000;
-            }
-        } else {
-            if (PhotoLeft < threshold && PhotoRight > threshold) {
-                balance = 1;
-                PWML = 20000;
-                PWMR = 30000;
-            } else if (PhotoRight < threshold && PhotoLeft > threshold) {
-                balance = -1;
-                PWML = 30000;
-                PWMR = 20000;
-            }
-        }
-
-        if (PhotoLeft > endthreshold && PhotoRight > endthreshold) break;
-
-        ProcessData();
-        
-        if(CommsLossCount>200){     //If communication loss persists, we assume complete loss of communication
-            Shutdown();             //You must define code in Shutdown function below
-        }
-        else{                       //If there is communication, then the following code block will be executed
-                                    //This is where all your functions should be executed
-            LATAbits.LATA4 = 0;     //Turn off Communication loss LED
-            
-            Drive();
-        }           
-    }
-
-    PWML = PWMR = 65535;
+    AutoDrive(350);
+    AutoLeft(3259);
+    
+    AutoDrive(2125);
+    AutoLeft(3289);
+    
+    AutoDrive(218);
+    AutoLeft(3259);
+    
+    PWMR = PWML = 65535;
     Drive();
+}
+
+void AutoDrive(int time) {
+    LATBbits.LATB10 = 0;
+    LATBbits.LATB12 = 1;
+    PWMR = 0;
+    PWML = 0;
+    Drive();
+    __delay_ms(time);
+}
+
+void AutoLeft(int time) {
+    LATBbits.LATB10 = 0;
+    LATBbits.LATB12 = 0;
+    PWMR = 30000;
+    PWML = 55000;\
+    Drive();
+    __delay_ms(time);
 }
 /*****************************************************************************************************************/
 void InitIO (void) {
@@ -261,14 +246,20 @@ void ADC (void)
 void ProcessData()
 {	
     // Motor Speeds and directions
-    PWMR = PWML = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];  //Build integer from array of bytes 
+    PWMR = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];  //Build integer from array of bytes 
+    PWML = (ReceiveDataArray[3] << 8) + ReceiveDataArray[4];  //Build integer from array of bytes 
 
-    LATBbits.LATB10 = ReceiveDataArray[3];
-    LATBbits.LATB12 = ReceiveDataArray[4];
+    LATBbits.LATB10 = ReceiveDataArray[5];
+    LATBbits.LATB12 = ReceiveDataArray[6];
+    
+    StartAutonomous = ReceiveDataArray[7];
+    if (StartAutonomous) {
+        ReceiveDataArray[5] = 0;
+    }
     
     SendDataArray[20] = 1;                  //Sending a 1 for controller to check for communication
     unsigned short Communicating = ReceiveDataArray[20];   //Checking if the controller sent us a 1, which will let us know if we
-
+    
     SendDataArray[1] = PhotoLeft >> 8;
     SendDataArray[2] = PhotoLeft;
     SendDataArray[3] = PhotoRight >> 8;
