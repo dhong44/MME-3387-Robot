@@ -38,8 +38,15 @@ void ADC (void);
 void ProcessData(void);
 void SendData(void);
 void Shutdown(void);
+long Map(long x, long in_min, long in_max, long out_min, long out_max);
+
+#define SERVO_MAX 3850        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
+#define SERVO_MIN 3000            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+#define INPUT_MAX 4095         // Used to set the photocell input max to 4095 Revised By:  Daniel Hong Sept 24       
+#define INPUT_MIN 0            // Used for photocell input min to 0 Revised By: Daniel Hong Sept 24
 
 //Global variables
+unsigned int ONTime = 0;
 unsigned int Photocell = 0;     //Value received from UART1 to control the pulsing rate of an LED connected to RB5 
 unsigned int PWML = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
 unsigned int PWMR = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
@@ -78,7 +85,7 @@ int main (void)
         else{                       //If there is communication, then the following code block will be executed
                                     //This is where all your functions should be executed
             LATAbits.LATA4 = 0;     //Turn off Communication loss LED
-            //ADC();                  //Call ADC which configures and reads AN0 Don't call ADC Revised By: Daniel Hong October 29
+            ADC();                  //Call ADC which configures and reads AN0 Don't call ADC Revised By: Daniel Hong October 29
                        
             PWMR = PWML = 0;                // Disable the motors if no button is pressed Revised By: Daniel Hong November 5 2018
             if (PORTBbits.RB10) {           // Set directions based on the left button being pressed
@@ -128,6 +135,9 @@ void InitIO (void)
 	TRISAbits.TRISA4 = 0;   //Set RA4 as output for LED to indicate communication loss
     TRISBbits.TRISB5 = 0;	//Set RB5 as output for LED to indicate photocell value from Robot MCU
     
+    // Set pins for motor control
+    TRISBbits.TRISB2 = 1;
+    
 	//RP8 TO U1RX           //Set the RP8 pin to UART1 RX pin
 	RPINR18bits.U1RXR = 8;	//See TABLE 11-1: SELECTABLE INPUT SOURCES (MAPS INPUT TO FUNCTION),Page 136
                             //and REGISTER 11-8: RPINR18: PERIPHERAL PIN SELECT INPUT REGISTER 18,Page 146
@@ -171,18 +181,23 @@ void ADC (void)
 		ADC_VREF_AVDD_AVSS & ADC_SCAN_OFF & ADC_ALT_INPUT_OFF,
 		ADC_SAMPLE_TIME_31 & ADC_CONV_CLK_INTERNAL_RC,
 		ADC_DMA_BUF_LOC_1,
-		ENABLE_AN1_ANA,
+		ENABLE_AN4_ANA,
 		0,		
 		0,
 		0);
                                     //Select AN0
-	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN1);
+	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN4);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-	PWMR = ReadADC1(0);           //ONTime = converted results
+    ONTime = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 }
 /*****************************************************************************************************************/
+long Map(long x, long in_min, long in_max, long out_min, long out_max)
+{
+    return (x-in_min)*(out_max-out_min)/(in_max-in_min)+out_min;
+}
+/********************************************************************************************************/
 void ProcessData(void)
 {
 	SendDataArray[1] = (PWMR >> 8);       //Populate the array one byte at a time
@@ -194,11 +209,14 @@ void ProcessData(void)
     SendDataArray[5] = DirectionR;       //Set right directions Revised By: Daniel Hong November 5 2018
     SendDataArray[6] = DirectionL;       //Set left direction Revised By: Daniel Hong November 5 2018
 
-    SendDataArray[20] = 1;                  //Sending a 1 for robot to check for communication (i.e. new data)
-    Communicating = ReceiveDataArray[20];   //Checking if the robot sent us a 1, which will indicate communication
-    
     SendDataArray[7] = StartAutonomous;
     StartAutonomous = 0;
+
+    SendDataArray[8] = (ONTime >> 8);       //Populate the array one byte at a time
+	SendDataArray[9] = ONTime;              // Revised By: Daniel Hong November 5 2018
+
+    SendDataArray[20] = 1;                  //Sending a 1 for robot to check for communication (i.e. new data)
+    Communicating = ReceiveDataArray[20];   //Checking if the robot sent us a 1, which will indicate communication
     
     x = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];
     xx = (ReceiveDataArray[3] << 8) + ReceiveDataArray[4];

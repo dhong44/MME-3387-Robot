@@ -35,6 +35,10 @@
 #define BUFF_SIZE 32
 #define RMOTORDIRECTIONPORT LATBbits.LATB10
 #define LMOTORDIRECTIONPORT LATBbits.LATB12
+#define SERVO_MAX 3850        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
+#define SERVO_MIN 3000            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+#define INPUT_MAX 4095         // Used to set the photocell input max to 4095 Revised By:  Daniel Hong Sept 24       
+#define INPUT_MIN 0            // Used for photocell input min to 0 Revised By: Daniel Hong Sept 24
 
 //Configuration Bits
 _FOSCSEL(FNOSC_FRC & IESO_OFF);
@@ -51,16 +55,21 @@ void ADC (void);
 void ProcessData();
 void SendData(void);
 void Shutdown(void);				
-void InitPWM(void);		
+void InitPWM(void);
 void Drive(void);
 void Autonomous(void);
 void AutoDrive(int time);
 void AutoLeft(int time);
+long Map(long x, long in_min, long in_max, long out_min, long out_max);
 
 
 unsigned int PWMReceivedDC = 0;            //Variable used to store value of ONTime while it is being received and mapped
 
-unsigned int OFFTime = 3000;                //Variable used to control the period of the square wave	
+unsigned int ONTime = 0;
+unsigned int OFFTime = 3001;                //Variable used to control the period of the square wave	
+unsigned int TmrState = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrVal = 0;       //Variable to store the value used to setup Timer1 which 
+
 unsigned char SendDataArray[BUFF_SIZE];     //Array to store the data to be transmitted through UART1 TX pin
 unsigned char ReceiveDataArray[BUFF_SIZE];  //Array to store the data received from UART1 RX pin
 unsigned char ReceivedChar = 0;             //Variable used to store the last byte received from UART1 RX pin
@@ -81,10 +90,14 @@ int main (void)
 	InitPWM();
     InitUART();         //Call InitUART which configures the UART hardware module for communications
                         //with the HC-05 Bluetooth Module
+    InitTimer();
 	
 	for (i=0; i<BUFF_SIZE; i++) SendDataArray[i] = 0;   //Initialize the array of chars to zero
 	SendDataArray[0] = 's';                             //Set first element as 's' for data synchronization
                                                        //and for framing error checking
+    
+    ADC();
+    ONTime = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
 
 	while (1) {            
         ProcessData();	//Call ProcessData to update variables for UART1 Communications
@@ -101,8 +114,6 @@ int main (void)
                 StartAutonomous = 0;
                 Autonomous();
             }
-            
-            ADC();
             Drive();
         }            
     }
@@ -162,6 +173,9 @@ void InitIO (void) {
     // Set communication loss LED
     
     TRISAbits.TRISA4 = 0;   //Set RA4 as output for LED to indicate communication loss
+    
+    // Arm motor pins
+    TRISAbits.TRISA0 = 0;
 
     // Set bluetooth configuation
     
@@ -226,21 +240,6 @@ void ADC (void)
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
 	PhotoLeft = ReadADC1(0);           //ONTime = converted results
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
-
-	OpenADC1(ADC_MODULE_OFF & ADC_AD12B_12BIT & ADC_FORMAT_INTG & ADC_CLK_AUTO & ADC_AUTO_SAMPLING_ON,
-                ADC_VREF_AVDD_AVSS & ADC_SCAN_OFF & ADC_ALT_INPUT_OFF,
-		ADC_SAMPLE_TIME_31 & ADC_CONV_CLK_INTERNAL_RC,
-		ADC_DMA_BUF_LOC_1,
-		ENABLE_AN10_ANA,
-		0,		
-		0,
-		0);
-                                    //Select AN4
-	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN10);
-	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
-	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-	PhotoRight = ReadADC1(0);           //ONTime = converted results
-	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 }
 /*****************************************************************************************************************/
 void ProcessData()
@@ -256,6 +255,8 @@ void ProcessData()
     if (StartAutonomous) {
         ReceiveDataArray[5] = 0;
     }
+    
+    ONTime = (ReceiveDataArray[8] << 8) + ReceiveDataArray[9];  //Build integer from array of bytes 
     
     SendDataArray[20] = 1;                  //Sending a 1 for controller to check for communication
     unsigned short Communicating = ReceiveDataArray[20];   //Checking if the controller sent us a 1, which will let us know if we
@@ -289,7 +290,39 @@ long Map(long x, long in_min, long in_max, long out_min, long out_max)
 {
     return (x-in_min)*(out_max-out_min)/(in_max-in_min)+out_min;
 }
-/*****************************************************************************************************************/
+/********************************************************************************************************/
+void InitTimer(void)
+{                              //Prescaler = 1:1
+                               //Period = 0x0FFF
+	OpenTimer1 (T1_ON & T1_PS_1_1 & T1_SYNC_EXT_OFF & T1_SOURCE_INT & T1_GATE_OFF & T1_IDLE_STOP, 0x0FFF);
+                               //Turn Timer1 interrupt ON
+	ConfigIntTimer1 (T1_INT_PRIOR_7 & T1_INT_ON);
+}
+/*********************************************************************************************************/
+void __attribute__((interrupt, auto_psv)) _T1Interrupt(void)	
+{
+	DisableIntT1;              //Disable Timer1 interrupt 
+
+// This IF statement will constantly switch in order to generate the square wave signal (ONTime and OFFTime)
+	if (TmrState == 0)         //If signal is low (OFF)
+	{
+		LATAbits.LATA0 = 1;    //Turn ON Output to set high signal for RB6
+		T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+		TmrVal = ONTime;       //Set TmrVal = ONTime
+		TmrState = 1;          //Set signal state to be ON for next interrupt
+	}
+	else if (TmrState == 1)    //If signal is HIGH (ON)
+	{
+		LATAbits.LATA0 = 0;    //Turn OFF Output to set LOW signal for RB6
+		TmrVal = OFFTime;      //Set TmrVal = OFFTime
+		T1CONbits.TCKPS = 2;   //Change prescaler to 1:64
+		TmrState = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+	}	
+	WriteTimer1(TmrVal);       //Setup Timer1 with the appropriate value to set the interrupt time
+	IFS0bits.T1IF = 0;         //Reset Timer1 interrupt flag
+	EnableIntT1;               //Enable Timer1 interrupt
+}
+/*********************************************************************************************************/
 void Shutdown(void){
     //Enter your code to disable/stop anything that could potentially keep running
     //This is incase of disconnect between Bluetooth modules
@@ -300,6 +333,7 @@ void Shutdown(void){
     LATAbits.LATA4 = 1;     //Turn on communication error LED 
     SetDCOC1PWM(65535);	    //Set duty cycle of left wheel
 	SetDCOC2PWM(65535);     //Set duty cycle of right wheel
+    ONTime = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
 }
 /*********************************************************************************************************/
 void Drive(void)
