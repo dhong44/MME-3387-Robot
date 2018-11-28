@@ -40,13 +40,15 @@ void SendData(void);
 void Shutdown(void);
 long Map(long x, long in_min, long in_max, long out_min, long out_max);
 
-#define SERVO_MAX 3850        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
-#define SERVO_MIN 3000            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+#define SERVO_MAX 1095        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
+#define SERVO_MIN 245            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
 #define INPUT_MAX 4095         // Used to set the photocell input max to 4095 Revised By:  Daniel Hong Sept 24       
 #define INPUT_MIN 0            // Used for photocell input min to 0 Revised By: Daniel Hong Sept 24
 
 //Global variables
-unsigned int ONTime = 0;
+unsigned int ONTimeBase = 0;
+unsigned int ONTimeArm = 0;
+
 unsigned int Photocell = 0;     //Value received from UART1 to control the pulsing rate of an LED connected to RB5 
 unsigned int PWML = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
 unsigned int PWMR = 65535;        //Variable sent to the Robot PIC24H microcontroller via HC-05 Bluetooth Module			
@@ -117,7 +119,6 @@ int main (void)
 /*****************************************************************************************************************/
 void InitIO (void)
 {
-	TRISAbits.TRISA0 = 1;	//Set RA0 (AN0) as input
     
     AD1PCFGLbits.PCFG9 = 1; //Set RB13 As Digital Instead of Analog
     AD1PCFGLbits.PCFG11 = 1; //Set RB13 As Digital Instead of Analog
@@ -136,7 +137,8 @@ void InitIO (void)
     TRISBbits.TRISB5 = 0;	//Set RB5 as output for LED to indicate photocell value from Robot MCU
     
     // Set pins for motor control
-    TRISBbits.TRISB2 = 1;
+	TRISAbits.TRISA0 = 1;	//Set RA0 (AN0) as input
+	TRISAbits.TRISA1 = 1;	//Set RA0 (AN0) as input
     
 	//RP8 TO U1RX           //Set the RP8 pin to UART1 RX pin
 	RPINR18bits.U1RXR = 8;	//See TABLE 11-1: SELECTABLE INPUT SOURCES (MAPS INPUT TO FUNCTION),Page 136
@@ -181,15 +183,30 @@ void ADC (void)
 		ADC_VREF_AVDD_AVSS & ADC_SCAN_OFF & ADC_ALT_INPUT_OFF,
 		ADC_SAMPLE_TIME_31 & ADC_CONV_CLK_INTERNAL_RC,
 		ADC_DMA_BUF_LOC_1,
-		ENABLE_AN4_ANA,
+		ENABLE_AN0_ANA,
 		0,		
 		0,
 		0);
                                     //Select AN0
-	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN4);
+	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN0);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-    ONTime = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeBase = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
+
+	OpenADC1(ADC_MODULE_OFF & ADC_AD12B_12BIT & ADC_FORMAT_INTG & ADC_CLK_AUTO & ADC_AUTO_SAMPLING_ON,
+		ADC_VREF_AVDD_AVSS & ADC_SCAN_OFF & ADC_ALT_INPUT_OFF,
+		ADC_SAMPLE_TIME_31 & ADC_CONV_CLK_INTERNAL_RC,
+		ADC_DMA_BUF_LOC_1,
+		ENABLE_AN1_ANA,
+		0,		
+		0,
+		0);
+                                    //Select AN0
+	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN1);
+	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
+	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
+    ONTimeArm = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 }
 /*****************************************************************************************************************/
@@ -212,8 +229,10 @@ void ProcessData(void)
     SendDataArray[7] = StartAutonomous;
     StartAutonomous = 0;
 
-    SendDataArray[8] = (ONTime >> 8);       //Populate the array one byte at a time
-	SendDataArray[9] = ONTime;              // Revised By: Daniel Hong November 5 2018
+    SendDataArray[8] = (ONTimeBase >> 8);       //Populate the array one byte at a time
+	SendDataArray[9] = ONTimeBase;              // Revised By: Daniel Hong November 5 2018
+    SendDataArray[10] = (ONTimeArm >> 8);       //Populate the array one byte at a time
+	SendDataArray[11] = ONTimeArm;              // Revised By: Daniel Hong November 5 2018
 
     SendDataArray[20] = 1;                  //Sending a 1 for robot to check for communication (i.e. new data)
     Communicating = ReceiveDataArray[20];   //Checking if the robot sent us a 1, which will indicate communication

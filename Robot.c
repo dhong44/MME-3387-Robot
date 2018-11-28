@@ -65,9 +65,15 @@ long Map(long x, long in_min, long in_max, long out_min, long out_max);
 
 unsigned int PWMReceivedDC = 0;            //Variable used to store value of ONTime while it is being received and mapped
 
-unsigned int ONTime = 0;
-unsigned int OFFTime = 3001;                //Variable used to control the period of the square wave	
-unsigned int TmrState = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int ONTimeBase = 0;
+unsigned int TmrStateBase = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValBase = 0;       //Variable to store the value used to setup Timer1 which 
+
+unsigned int ONTimeArm = 0;
+unsigned int TmrStateArm = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValArm = 0;       //Variable to store the value used to setup Timer1 which 
+
+unsigned int OFFTime = 8760;                //Variable used to control the period of the square wave	
 unsigned int TmrVal = 0;       //Variable to store the value used to setup Timer1 which 
 
 unsigned char SendDataArray[BUFF_SIZE];     //Array to store the data to be transmitted through UART1 TX pin
@@ -97,7 +103,8 @@ int main (void)
                                                        //and for framing error checking
     
     ADC();
-    ONTime = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeArm = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeBase = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
 
 	while (1) {            
         ProcessData();	//Call ProcessData to update variables for UART1 Communications
@@ -176,6 +183,7 @@ void InitIO (void) {
     
     // Arm motor pins
     TRISAbits.TRISA0 = 0;
+    TRISAbits.TRISA1 = 0;
 
     // Set bluetooth configuation
     
@@ -256,7 +264,8 @@ void ProcessData()
         ReceiveDataArray[5] = 0;
     }
     
-    ONTime = (ReceiveDataArray[8] << 8) + ReceiveDataArray[9];  //Build integer from array of bytes 
+    ONTimeBase = (ReceiveDataArray[8] << 8) + ReceiveDataArray[9];  //Build integer from array of bytes 
+    ONTimeArm = (ReceiveDataArray[10] << 8) + ReceiveDataArray[11];  //Build integer from array of bytes 
     
     SendDataArray[20] = 1;                  //Sending a 1 for controller to check for communication
     unsigned short Communicating = ReceiveDataArray[20];   //Checking if the controller sent us a 1, which will let us know if we
@@ -294,7 +303,7 @@ long Map(long x, long in_min, long in_max, long out_min, long out_max)
 void InitTimer(void)
 {                              //Prescaler = 1:1
                                //Period = 0x0FFF
-	OpenTimer1 (T1_ON & T1_PS_1_1 & T1_SYNC_EXT_OFF & T1_SOURCE_INT & T1_GATE_OFF & T1_IDLE_STOP, 0x0FFF);
+	OpenTimer1 (T1_ON & T1_PS_1_1 & T1_SYNC_EXT_OFF & T1_SOURCE_INT & T1_GATE_OFF & T1_IDLE_STOP, 0xFFFF);
                                //Turn Timer1 interrupt ON
 	ConfigIntTimer1 (T1_INT_PRIOR_7 & T1_INT_ON);
 }
@@ -303,22 +312,46 @@ void __attribute__((interrupt, auto_psv)) _T1Interrupt(void)
 {
 	DisableIntT1;              //Disable Timer1 interrupt 
 
-// This IF statement will constantly switch in order to generate the square wave signal (ONTime and OFFTime)
-	if (TmrState == 0)         //If signal is low (OFF)
-	{
-		LATAbits.LATA0 = 1;    //Turn ON Output to set high signal for RB6
-		T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
-		TmrVal = ONTime;       //Set TmrVal = ONTime
-		TmrState = 1;          //Set signal state to be ON for next interrupt
-	}
-	else if (TmrState == 1)    //If signal is HIGH (ON)
-	{
-		LATAbits.LATA0 = 0;    //Turn OFF Output to set LOW signal for RB6
-		TmrVal = OFFTime;      //Set TmrVal = OFFTime
-		T1CONbits.TCKPS = 2;   //Change prescaler to 1:64
-		TmrState = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
-	}	
-	WriteTimer1(TmrVal);       //Setup Timer1 with the appropriate value to set the interrupt time
+    TmrValBase -= TmrVal;
+    TmrValArm -= TmrVal;
+
+    if (TmrValBase <= 0) {
+        if (TmrStateBase == 0)         //If signal is low (OFF)
+        {
+            LATAbits.LATA0 = 1;    //Turn ON Output to set high signal for RB6
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+            TmrValBase = ONTimeBase;       //Set TmrVal = ONTime
+            TmrStateBase = 1;          //Set signal state to be ON for next interrupt
+        }
+        else if (TmrStateBase == 1)    //If signal is HIGH (ON)
+        {
+            LATAbits.LATA0 = 0;    //Turn OFF Output to set LOW signal for RB6
+            TmrValBase = OFFTime;      //Set TmrVal = OFFTime
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
+            TmrStateBase = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+        }	
+    }
+
+    if (TmrValArm <= 0) {
+        if (TmrStateArm == 0)         //If signal is low (OFF)
+        {
+            LATAbits.LATA1 = 1;    //Turn ON Output to set high signal for RB6
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+            TmrValArm = ONTimeArm;       //Set TmrVal = ONTime
+            TmrStateArm = 1;          //Set signal state to be ON for next interrupt
+        }
+        else if (TmrStateArm == 1)    //If signal is HIGH (ON)
+        {
+            LATAbits.LATA1 = 0;    //Turn OFF Output to set LOW signal for RB6
+            TmrValArm = OFFTime;      //Set TmrVal = OFFTime
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
+            TmrStateArm = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+        }	
+    }
+
+    TmrVal = (TmrValArm < TmrValBase) ? TmrValArm : TmrValBase;
+
+	WriteTimer1(65535 - TmrVal);       //Setup Timer1 with the appropriate value to set the interrupt time
 	IFS0bits.T1IF = 0;         //Reset Timer1 interrupt flag
 	EnableIntT1;               //Enable Timer1 interrupt
 }
@@ -333,7 +366,8 @@ void Shutdown(void){
     LATAbits.LATA4 = 1;     //Turn on communication error LED 
     SetDCOC1PWM(65535);	    //Set duty cycle of left wheel
 	SetDCOC2PWM(65535);     //Set duty cycle of right wheel
-    ONTime = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeArm = 0;
+    ONTimeBase = 0;
 }
 /*********************************************************************************************************/
 void Drive(void)
