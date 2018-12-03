@@ -40,8 +40,12 @@ void SendData(void);
 void Shutdown(void);
 long Map(long x, long in_min, long in_max, long out_min, long out_max);
 
-#define SERVO_MAX 1095        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
-#define SERVO_MIN 245            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+#define BASE_MAX 1095        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
+#define BASE_MIN 245            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+
+#define ARM_MAX 895        //Used to set RC Servo Maximum Value changed to proper max of 3850 Revised By: Daniel Hong Sept 24       
+#define ARM_MIN 445            //Used to set RC Servo Minimum Value changed to proper min of 3000 Revised By: Daniel Hong Sept 24
+
 #define INPUT_MAX 4095         // Used to set the photocell input max to 4095 Revised By:  Daniel Hong Sept 24       
 #define INPUT_MIN 0            // Used for photocell input min to 0 Revised By: Daniel Hong Sept 24
 
@@ -191,7 +195,7 @@ void ADC (void)
 	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN0);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-    ONTimeBase = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeBase = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, BASE_MIN, BASE_MAX);
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 
 	OpenADC1(ADC_MODULE_OFF & ADC_AD12B_12BIT & ADC_FORMAT_INTG & ADC_CLK_AUTO & ADC_AUTO_SAMPLING_ON,
@@ -206,7 +210,7 @@ void ADC (void)
 	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN1);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-    ONTimeArm = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeArm = Map(ReadADC1(0), INPUT_MIN, INPUT_MAX, ARM_MIN, ARM_MAX);
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
 }
 /*****************************************************************************************************************/

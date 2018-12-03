@@ -69,9 +69,21 @@ unsigned int ONTimeBase = 0;
 unsigned int TmrStateBase = 0;     //Variable used to store whether square wave is ON or OFF 		
 unsigned int TmrValBase = 0;       //Variable to store the value used to setup Timer1 which 
 
-unsigned int ONTimeArm = 0;
-unsigned int TmrStateArm = 0;     //Variable used to store whether square wave is ON or OFF 		
-unsigned int TmrValArm = 0;       //Variable to store the value used to setup Timer1 which 
+unsigned int ONTimeBottomArm = 0;
+unsigned int TmrStateBottomArm = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValBottomArm = 0;       //Variable to store the value used to setup Timer1 which 
+
+unsigned int ONTimeBottomArmR = 0;
+unsigned int TmrStateBottomArmR = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValBottomArmR = 0;       //Variable to store the value used to setup Timer1 which 
+
+unsigned int ONTimeTopArm = 0;
+unsigned int TmrStateTopArm = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValTopArm = 0;       //Variable to store the value used to setup Timer1 which 
+
+unsigned int ONTimeClaw = 0;
+unsigned int TmrStateClaw = 0;     //Variable used to store whether square wave is ON or OFF 		
+unsigned int TmrValClaw = 0;       //Variable to store the value used to setup Timer1 which 
 
 unsigned int OFFTime = 8760;                //Variable used to control the period of the square wave	
 unsigned int TmrVal = 0;       //Variable to store the value used to setup Timer1 which 
@@ -86,9 +98,18 @@ unsigned int CommsLossCount = 0;            //Store the number of times there wa
 unsigned int PWML = 65535;	//Initialize PWM1, used to store value of PWM Signal to motor 1
 unsigned int PWMR = 65535;	//Initialize PWM2, used to store value of PWM Signal to motor 2
                             //Note the value of 65535 represents 100% Duty Cycle = motor off 
+unsigned int PWMFast = 65535;	//Initialize PWM2, used to store value of PWM Signal to motor 2
+unsigned int PWMMedium = 65535;	//Initialize PWM2, used to store value of PWM Signal to motor 2
+unsigned int PWMSlow = 65535;	//Initialize PWM2, used to store value of PWM Signal to motor 2
+
 unsigned int PhotoLeft = 0;	//Initialize PWM2, used to store value of PWM Signal to motor 2
 unsigned int PhotoRight = 0;	//Initialize PWM2, used to store value of PWM Signal to motor 2
-unsigned int StartAutonomous = 0;
+unsigned int AutonomousMode = 0;
+signed int Balance = 0;
+unsigned int LineThreshold = 275;
+unsigned int State = 0;
+unsigned int ADCCount = 0;
+
 
 int main (void)
 {
@@ -103,12 +124,14 @@ int main (void)
                                                        //and for framing error checking
     
     ADC();
-    ONTimeArm = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
-    ONTimeBase = Map(3000, INPUT_MIN, INPUT_MAX, SERVO_MIN, SERVO_MAX);
+    ONTimeBottomArm = 0;
+    ONTimeTopArm = 0;
+    ONTimeBase = 0;
 
 	while (1) {            
         ProcessData();	//Call ProcessData to update variables for UART1 Communications
         SendData(); 	//Call SendData to send data through the UART1 TX pin to HC-05 Bluetooth Module
+        ADC();
 
         if(CommsLossCount>200){     //If communication loss persists, we assume complete loss of communication
             Shutdown();             //You must define code in Shutdown function below
@@ -116,11 +139,7 @@ int main (void)
         else{                       //If there is communication, then the following code block will be executed
                                     //This is where all your functions should be executed
             LATAbits.LATA4 = 0;     //Turn off Communication loss LED
-            
-            if (StartAutonomous) {
-                StartAutonomous = 0;
-                Autonomous();
-            }
+            if (AutonomousMode) { Autonomous(); }
             Drive();
         }            
     }
@@ -129,35 +148,46 @@ int main (void)
 }
 /*****************************************************************************************************************/
 void Autonomous(void) {    
-    AutoDrive(350);
-    AutoLeft(3259);
     
-    AutoDrive(2125);
-    AutoLeft(3289);
-    
-    AutoDrive(218);
-    AutoLeft(3259);
-    
-    PWMR = PWML = 65535;
-    Drive();
-}
 
-void AutoDrive(int time) {
-    LATBbits.LATB10 = 0;
-    LATBbits.LATB12 = 1;
-    PWMR = 0;
-    PWML = 0;
-    Drive();
-    __delay_ms(time);
-}
-
-void AutoLeft(int time) {
-    LATBbits.LATB10 = 0;
-    LATBbits.LATB12 = 0;
-    PWMR = 30000;
-    PWML = 55000;\
-    Drive();
-    __delay_ms(time);
+    if (PhotoLeft >= LineThreshold && PhotoRight >= LineThreshold) {
+        Balance = 0;
+        PWMR = PWML = PWMFast;
+        State = 0;
+        LATBbits.LATB10 = 0;
+        LATBbits.LATB12 = 1;
+    } else if (PhotoLeft < LineThreshold && PhotoRight >= LineThreshold) {
+        Balance = -1;
+        State = 1;
+        PWMR = PWMSlow;
+        PWML = PWMFast;
+        LATBbits.LATB10 = 0;
+        LATBbits.LATB12 = 1;
+    } else if (PhotoRight < LineThreshold && PhotoLeft >= LineThreshold) {
+        Balance = 1;
+        State = 2;
+        PWMR = PWMFast;
+        PWML = PWMSlow;
+        LATBbits.LATB10 = 0;
+        LATBbits.LATB12 = 1;
+    } else {
+        if (Balance < 0) {
+            PWMR = PWML = PWMMedium;
+            LATBbits.LATB10 = 1;
+            LATBbits.LATB12 = 1;
+            State = 3;
+        } else if (Balance > 0) {
+            PWMR = PWML = PWMMedium;
+            LATBbits.LATB10 = 0;
+            LATBbits.LATB12 = 0;
+            State = 4;
+        } else {
+            LATBbits.LATB10 = 0;
+            LATBbits.LATB12 = 1;
+            PWMR = PWML = PWMSlow;
+            State = 5;
+        }
+    }
 }
 /*****************************************************************************************************************/
 void InitIO (void) {
@@ -184,6 +214,9 @@ void InitIO (void) {
     // Arm motor pins
     TRISAbits.TRISA0 = 0;
     TRISAbits.TRISA1 = 0;
+    TRISBbits.TRISB0 = 0;
+    TRISBbits.TRISB1 = 0;
+    TRISBbits.TRISB2 = 0;
 
     // Set bluetooth configuation
     
@@ -246,26 +279,62 @@ void ADC (void)
 	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN9);
 	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
 	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
-	PhotoLeft = ReadADC1(0);           //ONTime = converted results
+    if (ADCCount == 20) {
+        PhotoLeft = ReadADC1(0);           //ONTime = converted results
+    }
 	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
+    
+    OpenADC1(ADC_MODULE_OFF & ADC_AD12B_12BIT & ADC_FORMAT_INTG & ADC_CLK_AUTO & ADC_AUTO_SAMPLING_ON,
+                ADC_VREF_AVDD_AVSS & ADC_SCAN_OFF & ADC_ALT_INPUT_OFF,
+		ADC_SAMPLE_TIME_31 & ADC_CONV_CLK_INTERNAL_RC,
+		ADC_DMA_BUF_LOC_1,
+		ENABLE_AN10_ANA,
+		0,		
+		0,
+		0);
+                                    //Select AN4
+	SetChanADC1(0, ADC_CH0_NEG_SAMPLEA_VREFN & ADC_CH0_POS_SAMPLEA_AN10);
+	AD1CON1bits.ADON = 1;           //Turn on ADC hardware module
+	while (AD1CON1bits.DONE == 0);	//Wait until conversion is done
+	if (ADCCount == 20) {
+        PhotoRight = ReadADC1(0);           //ONTime = converted results
+    }
+	AD1CON1bits.ADON = 0;           //Turn off ADC hardware module
+    
+    if (ADCCount == 20) {
+        ADCCount = 0;
+    }
+    ADCCount++;
 }
 /*****************************************************************************************************************/
 void ProcessData()
 {	
-    // Motor Speeds and directions
-    PWMR = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];  //Build integer from array of bytes 
-    PWML = (ReceiveDataArray[3] << 8) + ReceiveDataArray[4];  //Build integer from array of bytes 
+    AutonomousMode = ReceiveDataArray[7];
 
-    LATBbits.LATB10 = ReceiveDataArray[5];
-    LATBbits.LATB12 = ReceiveDataArray[6];
+    // Motor Speeds and directions
     
-    StartAutonomous = ReceiveDataArray[7];
-    if (StartAutonomous) {
-        ReceiveDataArray[5] = 0;
+    if (AutonomousMode) {
+        ONTimeBase = ONTimeTopArm = ONTimeClaw = ONTimeBottomArm = ONTimeBottomArmR = 0;
+        PWMFast = (ReceiveDataArray[16] << 8) + ReceiveDataArray[17];  //Build integer from array of bytes 
+        PWMMedium = (ReceiveDataArray[18] << 8) + ReceiveDataArray[19];  //Build integer from array of bytes 
+        PWMSlow = (ReceiveDataArray[21] << 8) + ReceiveDataArray[22];  //Build integer from array of bytes 
+    } else {
+        PWMR = (ReceiveDataArray[1] << 8) + ReceiveDataArray[2];  //Build integer from array of bytes 
+        PWML = (ReceiveDataArray[3] << 8) + ReceiveDataArray[4];  //Build integer from array of bytes 
+
+        LATBbits.LATB10 = ReceiveDataArray[5];
+        LATBbits.LATB12 = ReceiveDataArray[6];
+
+        ONTimeBase = (ReceiveDataArray[8] << 8) + ReceiveDataArray[9];  //Build integer from array of bytes 
+
+        ONTimeBottomArm = (ReceiveDataArray[10] << 8) + ReceiveDataArray[11];  //Build integer from array of bytes 
+        ONTimeBottomArmR = 922 - ONTimeBottomArm + 461;
+        if (ONTimeBottomArmR > 922 || ONTimeBottomArmR < 461)  ONTimeBottomArmR = 0;
+
+        ONTimeTopArm = (ReceiveDataArray[12] << 8) + ReceiveDataArray[13];  //Build integer from array of bytes 
+        ONTimeClaw = (ReceiveDataArray[14] << 8) + ReceiveDataArray[15];  //Build integer from array of bytes 
+
     }
-    
-    ONTimeBase = (ReceiveDataArray[8] << 8) + ReceiveDataArray[9];  //Build integer from array of bytes 
-    ONTimeArm = (ReceiveDataArray[10] << 8) + ReceiveDataArray[11];  //Build integer from array of bytes 
     
     SendDataArray[20] = 1;                  //Sending a 1 for controller to check for communication
     unsigned short Communicating = ReceiveDataArray[20];   //Checking if the controller sent us a 1, which will let us know if we
@@ -274,6 +343,7 @@ void ProcessData()
     SendDataArray[2] = PhotoLeft;
     SendDataArray[3] = PhotoRight >> 8;
     SendDataArray[4] = PhotoRight;
+    SendDataArray[5] = State;
 
     if(Communicating){                      //If there is communication, reset the communication loss counter
         CommsLossCount = 0;
@@ -313,7 +383,9 @@ void __attribute__((interrupt, auto_psv)) _T1Interrupt(void)
 	DisableIntT1;              //Disable Timer1 interrupt 
 
     TmrValBase -= TmrVal;
-    TmrValArm -= TmrVal;
+    TmrValBottomArm -= TmrVal;
+    TmrValTopArm -= TmrVal;
+    TmrValClaw -= TmrVal;
 
     if (TmrValBase <= 0) {
         if (TmrStateBase == 0)         //If signal is low (OFF)
@@ -332,24 +404,78 @@ void __attribute__((interrupt, auto_psv)) _T1Interrupt(void)
         }	
     }
 
-    if (TmrValArm <= 0) {
-        if (TmrStateArm == 0)         //If signal is low (OFF)
+    if (TmrValBottomArm <= 0) {
+        if (TmrStateBottomArm == 0)         //If signal is low (OFF)
         {
             LATAbits.LATA1 = 1;    //Turn ON Output to set high signal for RB6
             T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
-            TmrValArm = ONTimeArm;       //Set TmrVal = ONTime
-            TmrStateArm = 1;          //Set signal state to be ON for next interrupt
+            TmrValBottomArm = ONTimeBottomArm;       //Set TmrVal = ONTime
+            TmrStateBottomArm = 1;          //Set signal state to be ON for next interrupt
         }
-        else if (TmrStateArm == 1)    //If signal is HIGH (ON)
+        else if (TmrStateBottomArm == 1)    //If signal is HIGH (ON)
         {
             LATAbits.LATA1 = 0;    //Turn OFF Output to set LOW signal for RB6
-            TmrValArm = OFFTime;      //Set TmrVal = OFFTime
+            TmrValBottomArm = OFFTime;      //Set TmrVal = OFFTime
             T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
-            TmrStateArm = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+            TmrStateBottomArm = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
         }	
     }
 
-    TmrVal = (TmrValArm < TmrValBase) ? TmrValArm : TmrValBase;
+    if (TmrValBottomArmR <= 0) {
+        if (TmrStateBottomArmR == 0)         //If signal is low (OFF)
+        {
+            LATAbits.LATA1 = 1;    //Turn ON Output to set high signal for RB6
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+            TmrValBottomArmR = ONTimeBottomArmR;       //Set TmrVal = ONTime
+            TmrStateBottomArmR = 1;          //Set signal state to be ON for next interrupt
+        }
+        else if (TmrStateBottomArmR == 1)    //If signal is HIGH (ON)
+        {
+            LATAbits.LATA1 = 0;    //Turn OFF Output to set LOW signal for RB6
+            TmrValBottomArmR = OFFTime;      //Set TmrVal = OFFTime
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
+            TmrStateBottomArmR = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+        }	
+    }
+
+    if (TmrValTopArm <= 0) {
+        if (TmrStateTopArm == 0)         //If signal is low (OFF)
+        {
+            LATBbits.LATB0 = 1;    //Turn ON Output to set high signal for RB6
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+            TmrValTopArm = ONTimeTopArm;       //Set TmrVal = ONTime
+            TmrStateTopArm = 1;          //Set signal state to be ON for next interrupt
+        }
+        else if (TmrStateTopArm == 1)    //If signal is HIGH (ON)
+        {
+            LATBbits.LATB0 = 0;    //Turn OFF Output to set LOW signal for RB6
+            TmrValTopArm = OFFTime;      //Set TmrVal = OFFTime
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
+            TmrStateTopArm = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+        }	
+    }
+
+    if (TmrValClaw <= 0) {
+        if (TmrStateClaw == 0)         //If signal is low (OFF)
+        {
+            LATBbits.LATB1 = 1;    //Turn ON Output to set high signal for RB6
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:8
+            TmrValClaw = ONTimeClaw;       //Set TmrVal = ONTime
+            TmrStateClaw = 1;          //Set signal state to be ON for next interrupt
+        }
+        else if (TmrStateClaw == 1)    //If signal is HIGH (ON)
+        {
+            LATBbits.LATB1 = 0;    //Turn OFF Output to set LOW signal for RB6
+            TmrValClaw = OFFTime;      //Set TmrVal = OFFTime
+            T1CONbits.TCKPS = 1;   //Change prescaler to 1:64
+            TmrStateClaw = 0;          //Set Timer state to be OFF for next interrupt in order to repeat again
+        }	
+    }
+
+    TmrVal = (TmrValBottomArm < TmrValBottomArmR) ? TmrValBottomArm : TmrValBottomArmR;
+    TmrVal = (TmrVal < TmrValBase) ? TmrVal : TmrValBase;
+    TmrVal = (TmrVal < TmrValTopArm) ? TmrVal : TmrValTopArm;
+    TmrVal = (TmrVal < TmrValClaw) ? TmrVal : TmrValClaw;
 
 	WriteTimer1(65535 - TmrVal);       //Setup Timer1 with the appropriate value to set the interrupt time
 	IFS0bits.T1IF = 0;         //Reset Timer1 interrupt flag
@@ -366,7 +492,8 @@ void Shutdown(void){
     LATAbits.LATA4 = 1;     //Turn on communication error LED 
     SetDCOC1PWM(65535);	    //Set duty cycle of left wheel
 	SetDCOC2PWM(65535);     //Set duty cycle of right wheel
-    ONTimeArm = 0;
+    ONTimeBottomArm = 0;
+    ONTimeTopArm = 0;
     ONTimeBase = 0;
 }
 /*********************************************************************************************************/
